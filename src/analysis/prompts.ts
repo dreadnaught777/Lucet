@@ -63,3 +63,142 @@ export function buildDeepDivePrompt(target: DeepDiveTarget): string {
 
 	return parts.join('\n');
 }
+
+/**
+ * The why tier's output sections, in order. "Recorded reason" is optional and
+ * omitted when no commit/PR/comment states an actual reason.
+ */
+export const WHY_SECTIONS = [
+	'Approaches',
+	'Trade-offs',
+	'Fit here',
+	'Recorded reason',
+] as const;
+
+/**
+ * A "fit here" claim. Every fit claim MUST tie to a checkable project fact (a
+ * sibling implementation, an existing dependency, a lint/tsconfig setting, or a
+ * stated convention). A claim with no referent is not allowed.
+ */
+export interface FitClaim {
+	claim: string;
+	referent?: { kind: string; detail: string } | string;
+}
+
+/** True when a fit claim points at a non-empty project fact. */
+export function hasReferent(claim: FitClaim): boolean {
+	if (!claim.referent) {
+		return false;
+	}
+	if (typeof claim.referent === 'string') {
+		return claim.referent.trim().length > 0;
+	}
+	return claim.referent.detail.trim().length > 0;
+}
+
+/** Thrown when a fit claim is rendered without a referent. */
+export class UnreferencedFitClaimError extends Error {
+	constructor(claim: string) {
+		super(`Fit claim has no referent (no checkable project fact): "${claim}"`);
+		this.name = 'UnreferencedFitClaimError';
+	}
+}
+
+/**
+ * Render the "Fit here" section from structured claims. Rejects any claim with
+ * no referent — a fit claim that cannot be tied to a project fact must not be
+ * presented; state the trade-off generically instead.
+ */
+export function buildFitSection(claims: FitClaim[]): string {
+	const lines: string[] = ['## Fit here'];
+	for (const c of claims) {
+		if (!hasReferent(c)) {
+			throw new UnreferencedFitClaimError(c.claim);
+		}
+		const ref = typeof c.referent === 'string' ? c.referent : c.referent!.detail;
+		lines.push(`- ${c.claim} (see: ${ref})`);
+	}
+	return lines.join('\n');
+}
+
+/**
+ * Build the why-tier prompt. Instructs comparative analysis grounded in the
+ * project, and constrains hard against asserting the author's intent and against
+ * fit claims with no referent.
+ */
+export function buildWhyPrompt(target: DeepDiveTarget): string {
+	const headers = WHY_SECTIONS.map((s) => `## ${s}`).join('\n');
+	const parts = [
+		'Explain why this implementation was chosen over the alternatives that would',
+		'achieve the same thing, judged against THIS project. Use these sections:',
+		'',
+		headers,
+		'',
+		'Rules:',
+		'- Default voice is analytical ("why this fits / what the trade-offs are"),',
+		'  NOT "the author chose this because X". Assert deliberate intent only when a',
+		'  recorded source (commit/PR/comment) is cited under "Recorded reason".',
+		'- Every "Fit here" claim MUST point at a checkable project fact (a sibling',
+		'  implementation, an existing dependency, a lint/tsconfig setting, a stated',
+		'  convention). If you cannot tie a preference to a project fact, state the',
+		'  trade-off generically instead of claiming this project prefers it.',
+		'- Omit "Recorded reason" entirely if no recorded source is found.',
+		'',
+		`Language: ${target.languageId}`,
+	];
+	if (target.context && target.context.trim().length > 0) {
+		parts.push('', 'Project context:', '```', target.context, '```');
+	}
+	parts.push('', 'Code to explain:', '```' + target.languageId, target.code, '```');
+	return parts.join('\n');
+}
+
+/** Default pivot language for the "As Python" comprehension view. */
+export const DEFAULT_PIVOT_LANGUAGE = 'python';
+
+/**
+ * Whether the "Show as Python" affordance should be offered for a source unit.
+ * Hidden when the source is already the pivot language; shown otherwise.
+ */
+export function shouldShowAsPython(
+	sourceLanguageId: string,
+	pivotLanguage: string = DEFAULT_PIVOT_LANGUAGE,
+): boolean {
+	return sourceLanguageId.trim().toLowerCase() !== pivotLanguage.trim().toLowerCase();
+}
+
+/**
+ * Build the "As Python" prompt. Renders the unit as idiomatic pivot-language
+ * code — a reading aid, not a port. Constrains hard against transliteration and
+ * against implying the result is runnable or behaviourally equivalent.
+ */
+export function buildAsPythonPrompt(
+	target: DeepDiveTarget,
+	pivotLanguage: string = DEFAULT_PIVOT_LANGUAGE,
+): string {
+	const parts = [
+		`Render the following ${target.languageId} unit as idiomatic ${pivotLanguage},`,
+		'as a comprehension aid for readers who parse it fastest. This is illustrative,',
+		'NOT a port.',
+		'',
+		'Rules:',
+		`- Idiomatic, not transliterated: map idioms to their ${pivotLanguage} equivalents`,
+		'  (collection pipelines to comprehensions, pattern matching to match, etc.).',
+		'  Do not mirror the source syntax token for token.',
+		`- Flag lossy or divergent mappings: where the source uses something ${pivotLanguage}`,
+		'  lacks or expresses differently (concurrency primitives, ownership/borrowing,',
+		'  pointer semantics, async timing, structural vs nominal typing), approximate it',
+		'  and add a caveat.',
+		'- Never imply the result is runnable or behaviourally equivalent; it is illustrative.',
+		'- If the unit does not translate meaningfully, say so plainly instead of forcing it.',
+		'',
+		`Output: a single ${pivotLanguage} code block, then a short "Caveats" line listing`,
+		'any constructs that did not map cleanly.',
+		'',
+		'Code to render:',
+		'```' + target.languageId,
+		target.code,
+		'```',
+	];
+	return parts.join('\n');
+}

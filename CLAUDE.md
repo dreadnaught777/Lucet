@@ -75,7 +75,8 @@ ANTHROPIC_API_KEY is unset in the shell and in VS Code's environment.
 
 ## Module status
 (update at the end of every module)
-- Next: M7 - why tier (comparative analysis: context/rationale.ts, read-only tools, fit-here links)
+- Next: end-to-end wiring of the model-calling path once the 15 Jun 2026 SDK
+  credit/auth changes are confirmed (see "Stubs / not yet wired" below).
 - Done: structure/parser.ts node selection + grammar wasm from the extension dir
   (web-tree-sitter 0.22.6 + tree-sitter-wasms in grammars/). M3: analysis/prompts.ts deep-dive
   builder (five fixed section headers) + promptVersion, ui/panel.ts WebviewPanel, lucet.deepDive
@@ -87,7 +88,28 @@ ANTHROPIC_API_KEY is unset in the shell and in VS Code's environment.
   getOrAnalyze (hit skips query()); lucet.clearCache registered. M6: ui/meter.ts CostMeter
   accumulates total_cost_usd/costUSD and resets on month change (injectable clock); all spec
   section 10 settings declared in package.json (lucet.languages default now includes python).
-  env.ts/session.ts/context.ts and glance hover untouched.
+  M7: context/rationale.ts surfaces dependency manifest (lodash fixture) + manifest hash;
+  analysis/session.ts whySessionOptions/startWhySession (Read/Grep/Glob/Bash); prompts.ts
+  buildWhyPrompt + buildFitSection rejecting referent-less fit claims. M8: prompts.ts
+  shouldShowAsPython + buildAsPythonPrompt; cache/store.ts computePythonViewCacheKey (includes
+  pivotLanguage). env.ts and the glance hover path untouched.
+
+## Stubs / not yet wired (pending the 15 Jun 2026 SDK changes)
+The unit-tested building blocks are real, but the model-calling path is NOT yet
+connected end-to-end. Holding this until the 15 Jun 2026 Agent SDK credit/auth
+change is confirmed (separate monthly credit; verify subscription OAuth + Haiku
+selectability) before wiring live query() calls. Currently stubbed:
+- Glance hover renders surrounding source context, not a model explanation — no
+  query() call in the hover path yet.
+- lucet.deepDive renders the fixed section scaffold + assembled prompt in an HTML
+  comment; it does not call the model or stream results.
+- startAnalysisSession / startWhySession exist and are tool-tier-correct, but are
+  not yet invoked from the hover/command flows; nothing is parsed → cached → metered
+  end-to-end.
+- CostMeter accumulates correctly but is not fed real result messages nor bound to
+  a status-bar item.
+- Why and As-Python: prompt builders, fit-claim validation, and cache keys exist,
+  but there are no panel buttons and no session wiring.
 
 ## Working discipline
 - One module per session. Stop at each module's acceptance criteria and verify before continuing.
