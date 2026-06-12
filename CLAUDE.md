@@ -75,12 +75,14 @@ ANTHROPIC_API_KEY is unset in the shell and in VS Code's environment.
 
 ## Module status
 (update at the end of every module)
-- Next: M4 - semantic grounding (executeDefinitionProvider/executeHoverProvider)
+- Next: M5 - result cache (content-hash, globalStorage JSON, clear-cache command)
 - Done: structure/parser.ts node selection + grammar wasm from the extension dir
-  (web-tree-sitter 0.22.6 + tree-sitter-wasms in grammars/). M3 scaffolding: analysis/prompts.ts
-  deep-dive builder (five fixed section headers) + promptVersion, ui/panel.ts WebviewPanel,
-  lucet.deepDive command + held-modifier keybinding (lucet.modifier, when-context). env.ts/
-  session.ts/context.ts and the glance hover are in place; glance path left untouched.
+  (web-tree-sitter 0.22.6 + tree-sitter-wasms in grammars/). M3: analysis/prompts.ts deep-dive
+  builder (five fixed section headers) + promptVersion, ui/panel.ts WebviewPanel, lucet.deepDive
+  command + held-modifier keybinding (lucet.modifier, when-context). M4: structure/semantics.ts
+  wraps executeHoverProvider/executeDefinitionProvider (injectable exec), folds resolved
+  definitions into the deep-dive context, sets a low-confidence flag when empty; deepDive command
+  now grounds its prompt via semantics. env.ts/session.ts/context.ts and glance hover untouched.
 
 ## Working discipline
 - One module per session. Stop at each module's acceptance criteria and verify before continuing.

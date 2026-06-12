@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 import { buildSurroundingContext } from './analysis/context';
 import { buildDeepDivePrompt, DEEP_DIVE_SECTIONS } from './analysis/prompts';
 import { showDeepDivePanel } from './ui/panel';
+import { gatherSemanticFacts, foldSemanticsIntoContext } from './structure/semantics';
 
 // Decoration applied to the range that an analysis hover is describing.
 let dwellDecorationType: vscode.TextEditorDecorationType;
@@ -53,7 +54,7 @@ export function activate(context: vscode.ExtensionContext) {
 	// Enable the held-modifier deep-dive keybinding (gated by the when-context).
 	vscode.commands.executeCommand('setContext', 'lucet.deepDiveAvailable', true);
 
-	const deepDive = vscode.commands.registerCommand('lucet.deepDive', () => {
+	const deepDive = vscode.commands.registerCommand('lucet.deepDive', async () => {
 		const editor = vscode.window.activeTextEditor;
 		if (!editor) {
 			return;
@@ -65,9 +66,14 @@ export function activate(context: vscode.ExtensionContext) {
 			: selection;
 		const code = editor.document.getText(range);
 
+		// Ground the deep dive in VS Code's resolved types/definitions.
+		const facts = await gatherSemanticFacts(editor.document.uri, selection.active);
+		const { context } = foldSemanticsIntoContext(facts);
+
 		const prompt = buildDeepDivePrompt({
 			code,
 			languageId: editor.document.languageId,
+			context,
 		});
 
 		// Until the analysis layer is wired into this tier, render the fixed
