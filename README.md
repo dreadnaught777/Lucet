@@ -1,71 +1,44 @@
-# lucet README
+# Lucet
 
-This is the README for your extension "lucet". After writing up a brief description, we recommend including the following sections.
+A VS Code extension that adds code-explaining features, built on the Claude Agent SDK.
 
-## Features
+Lucet explains any line or block of code on hover, backed by the author's Claude Max
+subscription. It is a personal, single-user reading aid — not a product. The full build
+brief is in [`code-lens-ai-spec.md`](./code-lens-ai-spec.md); contributor conventions are
+in [`CLAUDE.md`](./CLAUDE.md).
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+## Explanation tiers
 
-For example if there is an image subfolder under your extension project workspace:
+- **Glance** — hover, no modifier. One or two sentences on the smallest enclosing AST node.
+- **Deep dive** — hold a modifier (default `Alt`) while hovering. Structured breakdown of the
+  enclosing function.
+- **Why** — a panel affordance. Comparative analysis: alternatives, trade-offs, and fit to the
+  project, with cited project facts.
+- **As Python** — renders a non-Python unit as idiomatic Python, as a reading aid.
 
-\!\[feature X\]\(images/feature-x.png\)
+## Architecture
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
+Everything runs in the VS Code extension host — no server, no database. TypeScript, Node 20+.
 
-## Requirements
+- `analysis/` — the one warm Agent SDK session, credential stripping, prompts.
+- `structure/` — `web-tree-sitter` node selection + VS Code provider semantics.
+- `context/`, `cache/`, `ui/` — context assembly, the result cache, and rendering.
+- `grammars/` — bundled tree-sitter `.wasm` grammars, resolved from the extension dir.
 
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
+## Settings
 
-## Extension Settings
+`lucet.dwellMs` (default 400), `lucet.modifier` (default `alt`), `lucet.languages`
+(default `["typescript","javascript","python"]`), and the per-tier model settings. See the
+manifest contract in the spec for the full list.
 
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
+## Developing
 
-For example:
+```
+npm install
+npm run watch        # compile in watch mode
+npm test             # run the test suite
+# press F5 to launch the Extension Development Host
+```
 
-This extension contributes the following settings:
-
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
-
-## Known Issues
-
-Calling out known issues can help limit users opening duplicate issues against your extension.
-
-## Release Notes
-
-Users appreciate release notes as you update your extension.
-
-### 1.0.0
-
-Initial release of ...
-
-### 1.0.1
-
-Fixed issue #.
-
-### 1.1.0
-
-Added features X, Y, and Z.
-
----
-
-## Following extension guidelines
-
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
-
-* [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
-
-## Working with Markdown
-
-You can author your README using Visual Studio Code. Here are some useful editor keyboard shortcuts:
-
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux).
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux).
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets.
-
-## For more information
-
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
-
-**Enjoy!**
+One-time auth setup: install Claude Code (`npm i -g @anthropic-ai/claude-code`), run
+`claude setup-token`, and confirm `ANTHROPIC_API_KEY` is unset so subscription OAuth wins.
