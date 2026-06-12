@@ -75,7 +75,7 @@ ANTHROPIC_API_KEY is unset in the shell and in VS Code's environment.
 
 ## Module status
 (update at the end of every module)
-- Next: M6 - cost meter and polish (status-bar spend, settings take effect live)
+- Next: M7 - why tier (comparative analysis: context/rationale.ts, read-only tools, fit-here links)
 - Done: structure/parser.ts node selection + grammar wasm from the extension dir
   (web-tree-sitter 0.22.6 + tree-sitter-wasms in grammars/). M3: analysis/prompts.ts deep-dive
   builder (five fixed section headers) + promptVersion, ui/panel.ts WebviewPanel, lucet.deepDive
@@ -84,8 +84,10 @@ ANTHROPIC_API_KEY is unset in the shell and in VS Code's environment.
   definitions into the deep-dive context, sets a low-confidence flag when empty; deepDive command
   grounds its prompt via semantics. M5: cache/store.ts content-hash key
   (sha256(targetText+context+promptVersion+model+depth)) + JSON store under globalStorage +
-  getOrAnalyze (hit skips query()); lucet.clearCache registered. env.ts/session.ts/context.ts
-  and glance hover untouched.
+  getOrAnalyze (hit skips query()); lucet.clearCache registered. M6: ui/meter.ts CostMeter
+  accumulates total_cost_usd/costUSD and resets on month change (injectable clock); all spec
+  section 10 settings declared in package.json (lucet.languages default now includes python).
+  env.ts/session.ts/context.ts and glance hover untouched.
 
 ## Working discipline
 - One module per session. Stop at each module's acceptance criteria and verify before continuing.

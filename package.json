@@ -57,6 +57,16 @@
           "default": "alt",
           "description": "Modifier held while hovering to escalate from glance to deep dive."
         },
+        "lucet.glanceModel": {
+          "type": "string",
+          "default": "claude-haiku-4-5-20251001",
+          "description": "Model used for the glance tier. Falls back to a Sonnet model if Haiku is not selectable on the subscription path."
+        },
+        "lucet.deepDiveModel": {
+          "type": "string",
+          "default": "claude-opus-4-8",
+          "description": "Model used for the deep-dive and why tiers."
+        },
         "lucet.languages": {
           "type": "array",
           "items": {
@@ -64,9 +74,32 @@
           },
           "default": [
             "typescript",
-            "javascript"
+            "javascript",
+            "python"
           ],
           "description": "Language identifiers for which the Lucet hover provider is registered."
+        },
+        "lucet.monthlyCreditUSD": {
+          "type": "number",
+          "default": 100,
+          "minimum": 0,
+          "description": "Monthly Agent SDK credit in USD, used as the denominator of the status-bar cost meter."
+        },
+        "lucet.whyRetrievalSteps": {
+          "type": "number",
+          "default": 6,
+          "minimum": 0,
+          "description": "Maximum agentic retrieval steps the why tier may take, so one expansion cannot crawl the whole repo."
+        },
+        "lucet.pivotLanguage": {
+          "type": "string",
+          "default": "python",
+          "description": "Target language for the \"As Python\" comprehension view. The button is hidden when the source is already this language."
+        },
+        "lucet.pivotModel": {
+          "type": "string",
+          "default": "claude-sonnet-4-6",
+          "description": "Model used to render the \"As Python\" view."
         }
       }
     }
