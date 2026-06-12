@@ -20,6 +20,18 @@
       {
         "command": "lucet.ping",
         "title": "Lucet: Ping"
+      },
+      {
+        "command": "lucet.deepDive",
+        "title": "Lucet: Deep Dive"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "lucet.deepDive",
+        "key": "alt+l",
+        "mac": "alt+l",
+        "when": "editorTextFocus && lucet.deepDiveAvailable"
       }
     ],
     "configuration": {
@@ -30,6 +42,16 @@
           "default": 400,
           "minimum": 0,
           "description": "Delay in milliseconds the cursor must dwell before Lucet triggers analysis."
+        },
+        "lucet.modifier": {
+          "type": "string",
+          "enum": [
+            "alt",
+            "ctrl",
+            "shift"
+          ],
+          "default": "alt",
+          "description": "Modifier held while hovering to escalate from glance to deep dive."
         },
         "lucet.languages": {
           "type": "array",

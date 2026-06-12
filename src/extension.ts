@@ -2,6 +2,8 @@
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
 import { buildSurroundingContext } from './analysis/context';
+import { buildDeepDivePrompt, DEEP_DIVE_SECTIONS } from './analysis/prompts';
+import { showDeepDivePanel } from './ui/panel';
 
 // Decoration applied to the range that an analysis hover is describing.
 let dwellDecorationType: vscode.TextEditorDecorationType;
@@ -48,6 +50,32 @@ export function activate(context: vscode.ExtensionContext) {
 		vscode.window.showInformationMessage('Lucet: pong');
 	});
 
+	// Enable the held-modifier deep-dive keybinding (gated by the when-context).
+	vscode.commands.executeCommand('setContext', 'lucet.deepDiveAvailable', true);
+
+	const deepDive = vscode.commands.registerCommand('lucet.deepDive', () => {
+		const editor = vscode.window.activeTextEditor;
+		if (!editor) {
+			return;
+		}
+		// Widen to the selection if present, else the cursor's line.
+		const selection = editor.selection;
+		const range = selection.isEmpty
+			? editor.document.lineAt(selection.active.line).range
+			: selection;
+		const code = editor.document.getText(range);
+
+		const prompt = buildDeepDivePrompt({
+			code,
+			languageId: editor.document.languageId,
+		});
+
+		// Until the analysis layer is wired into this tier, render the fixed
+		// section scaffold so the panel structure is visible and stable.
+		const scaffold = DEEP_DIVE_SECTIONS.map((s) => `## ${s}\n`).join('\n');
+		showDeepDivePanel('Lucet: Deep Dive', `${scaffold}\n<!--\n${prompt}\n-->`);
+	});
+
 	const hoverProvider: vscode.HoverProvider = {
 		provideHover(document, position) {
 			const lines = document.getText().split(/\r?\n/);
@@ -72,7 +100,7 @@ export function activate(context: vscode.ExtensionContext) {
 		hoverProvider,
 	);
 
-	context.subscriptions.push(disposable, ping, hoverRegistration);
+	context.subscriptions.push(disposable, ping, deepDive, hoverRegistration);
 }
 
 // This method is called when your extension is deactivated
