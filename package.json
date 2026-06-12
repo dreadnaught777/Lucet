@@ -24,6 +24,10 @@
       {
         "command": "lucet.deepDive",
         "title": "Lucet: Deep Dive"
+      },
+      {
+        "command": "lucet.clearCache",
+        "title": "Lucet: Clear Explanation Cache"
       }
     ],
     "keybindings": [

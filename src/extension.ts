@@ -5,6 +5,8 @@ import { buildSurroundingContext } from './analysis/context';
 import { buildDeepDivePrompt, DEEP_DIVE_SECTIONS } from './analysis/prompts';
 import { showDeepDivePanel } from './ui/panel';
 import { gatherSemanticFacts, foldSemanticsIntoContext } from './structure/semantics';
+import { CacheStore } from './cache/store';
+import * as path from 'path';
 
 // Decoration applied to the range that an analysis hover is describing.
 let dwellDecorationType: vscode.TextEditorDecorationType;
@@ -49,6 +51,16 @@ export function activate(context: vscode.ExtensionContext) {
 
 	const ping = vscode.commands.registerCommand('lucet.ping', () => {
 		vscode.window.showInformationMessage('Lucet: pong');
+	});
+
+	// Result cache lives under globalStorage so it persists across sessions.
+	const cacheStore = new CacheStore(
+		path.join(context.globalStorageUri.fsPath, 'cache.json'),
+	);
+
+	const clearCache = vscode.commands.registerCommand('lucet.clearCache', () => {
+		cacheStore.clear();
+		vscode.window.showInformationMessage('Lucet: explanation cache cleared.');
 	});
 
 	// Enable the held-modifier deep-dive keybinding (gated by the when-context).
@@ -106,7 +118,7 @@ export function activate(context: vscode.ExtensionContext) {
 		hoverProvider,
 	);
 
-	context.subscriptions.push(disposable, ping, deepDive, hoverRegistration);
+	context.subscriptions.push(disposable, ping, deepDive, clearCache, hoverRegistration);
 }
 
 // This method is called when your extension is deactivated
