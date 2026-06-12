@@ -1,0 +1,71 @@
+{
+  "name": "lucet",
+  "displayName": "Lucet",
+  "description": "Simple package to support AI explanation and analysis of code function",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.120.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "lucet.helloWorld",
+        "title": "Hello World"
+      },
+      {
+        "command": "lucet.ping",
+        "title": "Lucet: Ping"
+      }
+    ],
+    "configuration": {
+      "title": "Lucet",
+      "properties": {
+        "lucet.dwellMs": {
+          "type": "number",
+          "default": 400,
+          "minimum": 0,
+          "description": "Delay in milliseconds the cursor must dwell before Lucet triggers analysis."
+        },
+        "lucet.languages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "typescript",
+            "javascript"
+          ],
+          "description": "Language identifiers for which the Lucet hover provider is registered."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./ --skipLibCheck",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "22.x",
+    "@types/vscode": "^1.120.0",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
+    "eslint": "^9.39.3",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.56.1"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.175",
+    "tree-sitter-wasms": "^0.1.13",
+    "web-tree-sitter": "^0.22.6"
+  }
+}
