@@ -5,7 +5,7 @@ import * as path from 'path';
 import { collectResult } from '../analysis/collect';
 import { CostMeter } from '../ui/meter';
 import { assembleGlanceContext, collectImportLines } from '../context/assembler';
-import { splitMarkdownSections } from '../ui/panel';
+import { splitMarkdownSections, escapeHtml } from '../ui/panel';
 import { computeWhyCacheKey } from '../cache/store';
 import { selectEnclosingFunction, createParser } from '../structure/parser';
 import type Parser = require('web-tree-sitter');
@@ -36,6 +36,23 @@ suite('integration wiring Test Suite', () => {
 		assert.strictEqual(ctx.targetText, 'foo(1)');
 		assert.ok(ctx.context.includes("import { foo } from './foo';"));
 		assert.deepStrictEqual(collectImportLines(source), ["import { foo } from './foo';"]);
+	});
+
+	test('escapeHtml covers all five HTML-spec characters', () => {
+		// & is escaped first so the introduced &amp; entities are not re-escaped.
+		assert.strictEqual(escapeHtml('&'), '&amp;');
+		assert.strictEqual(escapeHtml('<'), '&lt;');
+		assert.strictEqual(escapeHtml('>'), '&gt;');
+		assert.strictEqual(escapeHtml('"'), '&quot;');
+		assert.strictEqual(escapeHtml("'"), '&#39;');
+		// Combined: a payload that would break out of an attribute if quotes
+		// were unescaped is rendered fully inert.
+		assert.strictEqual(
+			escapeHtml('"><script>alert(1)</script>'),
+			'&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;',
+		);
+		// Idempotence-of-ampersand sanity check: do not double-escape entities.
+		assert.strictEqual(escapeHtml('&amp;'), '&amp;amp;');
 	});
 
 	test('splitMarkdownSections parses the five deep-dive headers', () => {
