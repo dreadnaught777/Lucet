@@ -106,6 +106,30 @@ apiKeySource: none (subscription OAuth, not a pay-as-you-go key); total_cost_usd
 is populated; claude-haiku-4-5-20251001 IS selectable on this path, so the
 lucet.glanceModel default stays Haiku (no Sonnet fallback needed).
 
+## Fixes (16 Jun 2026)
+- Deep-dive-in-hover report: diagnosed, no code change needed. The lucet.deepDive
+  handler already calls showDeepDivePanel() (WebviewPanel, ViewColumn.Beside,
+  preserveFocus) — it does NOT return a vscode.Hover. The only hover is the glance
+  provider. The deep-dive trigger is the alt+l keybinding; VS Code can't fire a
+  command from a held modifier during a mouse hover, so plain hover always shows
+  glance. If "Alt-hover → panel" feel is wanted, that needs a different trigger,
+  not a panel fix.
+- Glance latency: the cause was a cold-started query() per hover (Check A). Fixed
+  with a warm, reused streaming-input session: analysis/session.ts createWarmSession()
+  opens query() once (allowedTools: []) and pushes one user message per hover, turns
+  serialized. extension.ts holds one glance WarmSession (recreated only if glanceModel
+  changes) and injects askGlance into the hover provider; prewarm() (non-blocking
+  ensureStarted — must NOT drain output or it deadlocks waiting for a pre-input message)
+  is kicked off at activation. Measured (Haiku, this machine/network): cold ~4.9s avg
+  per call; warm ~2.3-2.8s after the first; cache hits instant. Warm session removes
+  the ~1-2s spawn; remaining time is Haiku generation + network, so a cold-cache miss
+  is ~2s here, not always <1.5s — the <1.5s target is met by cache hits and warm reuse
+  in the common case, not guaranteed on every first-time hover. Checks B/C/D were
+  already correct: glanceModel default is Haiku (confirmed selectable); buildGlancePrompt
+  orders static instruction → file imports → node text last (cache-friendly);
+  assembleGlanceContext includes only node text + import lines. promptVersion unchanged
+  (no prompt text changed — latency fix must not invalidate the cache).
+
 ## Integration wiring progress (all model paths verified live 16 Jun 2026)
 - Step 1 (auth + Haiku): DONE, verified live.
 - Step 2 (glance hover): DONE. ui/hover.ts selects the AST node (structure/parser),

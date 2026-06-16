@@ -189,3 +189,155 @@ export async function startWhySession(prompt: string, opts: StartOptions = {}) {
 		options: whySessionOptions(opts.env ?? process.env, opts.model, opts.maxTurns),
 	});
 }
+
+// --- Warm session (glance hot path) -----------------------------------------
+// Cold-starting query() per hover spawns a Claude Code process each time, adding
+// 1-2s before the model sees the prompt. Instead, open ONE streaming-input
+// session and push a user message per hover, reading until that turn's result.
+
+interface InputMessage {
+	type: 'user';
+	session_id: string;
+	parent_tool_use_id: string | null;
+	message: { role: 'user'; content: string };
+}
+
+interface StreamMessage {
+	type?: string;
+	message?: { content?: Array<{ type?: string; text?: string }> };
+	total_cost_usd?: number;
+	costUSD?: number;
+}
+
+/** A persistent, reused analysis session. Tool-free (allowedTools: []). */
+export interface WarmSession {
+	/** Spawn the underlying process now so the first ask() does not pay startup. */
+	prewarm(): Promise<void>;
+	/** Send one prompt and resolve with the turn's text and cost. */
+	ask(prompt: string): Promise<{ text: string; costUSD: number }>;
+	/** Close the underlying session and its process. */
+	dispose(): void;
+}
+
+/** A pushable async iterable used as the SDK's streaming input. */
+function createInputStream() {
+	const buffer: InputMessage[] = [];
+	let notify: (() => void) | null = null;
+	let done = false;
+	const iterable: AsyncIterable<InputMessage> = {
+		async *[Symbol.asyncIterator]() {
+			while (true) {
+				if (buffer.length > 0) {
+					yield buffer.shift() as InputMessage;
+					continue;
+				}
+				if (done) {
+					return;
+				}
+				await new Promise<void>((resolve) => {
+					notify = resolve;
+				});
+			}
+		},
+	};
+	return {
+		iterable,
+		push(message: InputMessage) {
+			buffer.push(message);
+			const fn = notify;
+			notify = null;
+			fn?.();
+		},
+		close() {
+			done = true;
+			const fn = notify;
+			notify = null;
+			fn?.();
+		},
+	};
+}
+
+/**
+ * Create a warm glance/deep-dive session (allowedTools: []). The session starts
+ * lazily on the first `ask` and is reused for every subsequent call. Turns are
+ * serialized so concurrent hovers do not interleave on the shared stream.
+ */
+export function createWarmSession(opts: StartOptions = {}): WarmSession {
+	const env = opts.env ?? process.env;
+	const input = createInputStream();
+	let output: AsyncIterator<StreamMessage> | undefined;
+	let starting: Promise<void> | undefined;
+	let chain: Promise<unknown> = Promise.resolve();
+	let disposed = false;
+
+	const ensureStarted = (): Promise<void> => {
+		if (!starting) {
+			starting = (async () => {
+				const { query } = await import('@anthropic-ai/claude-agent-sdk');
+				const q = query({
+					prompt: input.iterable as never,
+					options: analysisSessionOptions(env, opts.model),
+				});
+				output = (q as AsyncIterable<StreamMessage>)[Symbol.asyncIterator]();
+			})();
+		}
+		return starting;
+	};
+
+
+	const turn = async (prompt: string): Promise<{ text: string; costUSD: number }> => {
+		if (disposed) {
+			throw new Error('warm session disposed');
+		}
+		await ensureStarted();
+		input.push({
+			type: 'user',
+			session_id: '',
+			parent_tool_use_id: null,
+			message: { role: 'user', content: prompt },
+		});
+
+		let text = '';
+		let costUSD = 0;
+		while (output) {
+			const { value, done } = await output.next();
+			if (done) {
+				break;
+			}
+			if (value.type === 'assistant') {
+				for (const block of value.message?.content ?? []) {
+					if (block.type === 'text' && block.text) {
+						text += block.text;
+					}
+				}
+			} else if (value.type === 'result') {
+				costUSD = value.total_cost_usd ?? value.costUSD ?? 0;
+				break;
+			}
+		}
+		return { text: text.trim(), costUSD };
+	};
+
+	return {
+		prewarm() {
+			// Construct the query and import the SDK now (non-blocking on output).
+			// We must NOT consume the output stream here: in streaming-input mode the
+			// SDK may not emit anything until the first user message, so draining would
+			// deadlock. The first ask() still pays one process spawn; calls 2..N reuse it.
+			return ensureStarted();
+		},
+		ask(prompt: string) {
+			const result = chain.then(() => turn(prompt));
+			// Keep the chain alive regardless of this turn's outcome.
+			chain = result.then(
+				() => undefined,
+				() => undefined,
+			);
+			return result;
+		},
+		dispose() {
+			disposed = true;
+			input.close();
+		},
+	};
+}

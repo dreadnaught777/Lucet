@@ -7,8 +7,6 @@ import { selectNode } from '../structure/parser';
 import { assembleGlanceContext } from '../context/assembler';
 import { computeCacheKey, getOrAnalyze, CacheStore } from '../cache/store';
 import { buildGlancePrompt, promptVersion } from '../analysis/prompts';
-import { startAnalysisSession } from '../analysis/session';
-import { collectResult } from '../analysis/collect';
 import { CostMeter } from './meter';
 
 export interface GlanceServices {
@@ -16,7 +14,10 @@ export interface GlanceServices {
 	store: CacheStore;
 	meter: CostMeter;
 	decoration: vscode.TextEditorDecorationType;
+	/** Model id used in the cache key (the warm session is created with it). */
 	glanceModel: () => string;
+	/** Ask the warm, reused glance session — never cold-starts a process per hover. */
+	askGlance: (prompt: string) => Promise<{ text: string; costUSD: number }>;
 	onMeterChanged: () => void;
 }
 
@@ -62,13 +63,12 @@ export function createGlanceHoverProvider(services: GlanceServices): vscode.Hove
 			});
 
 			const { value } = await getOrAnalyze(services.store, key, async () => {
-				const stream = await startAnalysisSession(
+				const { text, costUSD } = await services.askGlance(
 					buildGlancePrompt({ code: targetText, languageId: document.languageId, context }),
-					{ model },
 				);
-				const result = await collectResult(stream, services.meter);
+				services.meter.record({ total_cost_usd: costUSD });
 				services.onMeterChanged();
-				return result.text;
+				return text;
 			});
 
 			if (token.isCancellationRequested) {

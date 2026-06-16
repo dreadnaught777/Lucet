@@ -15,7 +15,12 @@ import {
 	shouldShowAsPython,
 	promptVersion,
 } from './analysis/prompts';
-import { startAnalysisSession, startWhySession } from './analysis/session';
+import {
+	startAnalysisSession,
+	startWhySession,
+	createWarmSession,
+	type WarmSession,
+} from './analysis/session';
 import { collectResult } from './analysis/collect';
 import {
 	CacheStore,
@@ -71,13 +76,30 @@ export function activate(context: vscode.ExtensionContext) {
 		vscode.window.showInformationMessage('Lucet: explanation cache cleared.');
 	});
 
-	// Glance: model-backed hover.
+	// One warm glance session, reused across hovers (recreated only if the model
+	// setting changes). Cold-starting query() per hover is the latency killer.
+	let glanceSession: WarmSession | undefined;
+	let glanceSessionModel: string | undefined;
+	const glanceSessionFor = (model: string): WarmSession => {
+		if (!glanceSession || glanceSessionModel !== model) {
+			glanceSession?.dispose();
+			glanceSession = createWarmSession({ model });
+			glanceSessionModel = model;
+		}
+		return glanceSession;
+	};
+
+	// Spawn the glance session process now so the first hover skips startup.
+	void glanceSessionFor(config().glanceModel).prewarm();
+
+	// Glance: model-backed hover via the warm session.
 	const hoverProvider = createGlanceHoverProvider({
 		extensionDir,
 		store,
 		meter,
 		decoration: dwellDecorationType,
 		glanceModel: () => config().glanceModel,
+		askGlance: (prompt) => glanceSessionFor(config().glanceModel).ask(prompt),
 		onMeterChanged: refreshMeter,
 	});
 	const hoverRegistration = vscode.languages.registerHoverProvider(
@@ -214,6 +236,7 @@ export function activate(context: vscode.ExtensionContext) {
 		deepDive,
 		ping,
 		hello,
+		{ dispose: () => glanceSession?.dispose() },
 	);
 }
 
