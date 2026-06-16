@@ -1,6 +1,9 @@
 .vscode/**
 .vscode-test/**
 src/**
+scripts/**
+lucet-integration-prompt.md
+code-lens-ai-spec.md
 .gitignore
 .yarnrc
 vsc-extension-quickstart.md

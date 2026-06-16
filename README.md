@@ -7,29 +7,27 @@ subscription. It is a personal, single-user reading aid — not a product. The f
 brief is in [`code-lens-ai-spec.md`](./code-lens-ai-spec.md); contributor conventions are
 in [`CLAUDE.md`](./CLAUDE.md).
 
-## Status — work in progress
+## Status
 
-The building blocks are implemented and unit-tested (parsing/node selection,
-semantic grounding, prompt builders, the result cache, the cost meter, and the
-tiered tool config), but **the model-calling path is not yet wired end-to-end**.
-Several key functions are currently stubs, held until the **15 June 2026** Agent
-SDK credit/auth changes are confirmed (programmatic SDK usage moves to a separate
-monthly credit; subscription-OAuth precedence and Haiku selectability need
-re-verifying before live `query()` calls go in). Specifically still stubbed:
+The model-calling path is now **wired end-to-end** and verified live against the
+Max subscription (16 June 2026): glance, deep dive, why, and the As-Python view all
+run through the warm Agent SDK session, are content-hash cached, and feed the cost
+meter. Tool tiers are enforced (glance / deep-dive / as-Python use `allowedTools: []`;
+only why gets `Read`/`Grep`/`Glob`/`Bash`).
 
-- **Glance** hover renders the surrounding source context, not a model-generated
-  explanation — no `query()` call in the hover path yet.
-- **Deep dive** opens the panel with the fixed section scaffold and the assembled
-  prompt (in an HTML comment); it does not yet call the model or stream a result.
-- The warm session wrappers (`startAnalysisSession` / `startWhySession`) exist and
-  are tool-tier-correct, but are not yet invoked from the hover/command flows, so
-  nothing is parsed → cached → metered end-to-end.
-- The **cost meter** accumulates correctly but is not yet fed real result messages
-  or bound to a status-bar item.
-- The **Why** and **As Python** tiers have prompt builders, validation, and cache
-  keys, but no panel buttons or session wiring.
+> **Billing note:** the previously-announced 15 June 2026 move to a separate monthly
+> Agent SDK credit pool was **paused** by Anthropic. SDK usage continues to draw from
+> the Max subscription's existing plan limits via subscription OAuth, as before, so
+> there is no billing change to account for. `lucet.monthlyCreditUSD` is a personal
+> visibility figure for the status-bar meter, not a hard cap.
 
-See `CLAUDE.md` for the per-module breakdown.
+**Still needs interactive (F5) verification.** The logic is unit-tested and the model
+paths are verified headlessly, but the VS Code UI surfaces have not been exercised in a
+running Extension Development Host: the glance tooltip + dwell + node highlight, the
+deep-dive webview (collapsible sections, "Defined at" navigation, the Explain-why /
+Show-as-Python buttons, copy), and the status-bar item. See `CLAUDE.md` for details and
+known follow-ups (best-effort glance cancellation; prompt-level vs structured why-claim
+enforcement).
 
 ## Explanation tiers
 

@@ -1,0 +1,5 @@
+import { compute } from './math';
+
+function add(a, b) {
+	return compute(a, b);
+}

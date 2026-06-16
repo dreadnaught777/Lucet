@@ -78,6 +78,35 @@ export function selectNode(root: SyntaxNode, offset: number): SelectedNode | nul
 	return toSelected(leaf);
 }
 
+/** Node types that delimit an enclosing function or class for the deep-dive unit. */
+export const FUNCTION_NODE_TYPES = [
+	'function_declaration',
+	'function_definition',
+	'function_expression',
+	'generator_function_declaration',
+	'method_definition',
+	'arrow_function',
+	'class_declaration',
+	'class_definition',
+];
+
+/**
+ * Select the enclosing function or class for a cursor at `offset` (the deep-dive
+ * unit). Falls back to {@link selectNode} when the cursor is not inside one.
+ */
+export function selectEnclosingFunction(root: SyntaxNode, offset: number): SelectedNode | null {
+	const leaf = root.namedDescendantForIndex(offset);
+	if (!leaf) {
+		return null;
+	}
+	for (let n: SyntaxNode | null = leaf; n; n = n.parent) {
+		if (FUNCTION_NODE_TYPES.includes(n.type)) {
+			return toSelected(n);
+		}
+	}
+	return selectNode(root, offset);
+}
+
 let initPromise: Promise<void> | undefined;
 
 /** Initialise the tree-sitter runtime once per extension host. */

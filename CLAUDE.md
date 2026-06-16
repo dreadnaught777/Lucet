@@ -94,22 +94,52 @@ ANTHROPIC_API_KEY is unset in the shell and in VS Code's environment.
   shouldShowAsPython + buildAsPythonPrompt; cache/store.ts computePythonViewCacheKey (includes
   pivotLanguage). env.ts and the glance hover path untouched.
 
-## Stubs / not yet wired (pending the 15 Jun 2026 SDK changes)
-The unit-tested building blocks are real, but the model-calling path is NOT yet
-connected end-to-end. Holding this until the 15 Jun 2026 Agent SDK credit/auth
-change is confirmed (separate monthly credit; verify subscription OAuth + Haiku
-selectability) before wiring live query() calls. Currently stubbed:
-- Glance hover renders surrounding source context, not a model explanation — no
-  query() call in the hover path yet.
-- lucet.deepDive renders the fixed section scaffold + assembled prompt in an HTML
-  comment; it does not call the model or stream results.
-- startAnalysisSession / startWhySession exist and are tool-tier-correct, but are
-  not yet invoked from the hover/command flows; nothing is parsed → cached → metered
-  end-to-end.
-- CostMeter accumulates correctly but is not fed real result messages nor bound to
-  a status-bar item.
-- Why and As-Python: prompt builders, fit-claim validation, and cache keys exist,
-  but there are no panel buttons and no session wiring.
+## Billing/auth status (resolved 16 Jun 2026)
+The previously-announced 15 Jun 2026 move to a separate monthly Agent SDK credit
+pool has been PAUSED by Anthropic. Agent SDK usage continues to draw from the Max
+subscription's existing plan limits via subscription OAuth, as before. No billing
+change to account for; lucet.monthlyCreditUSD is a personal-visibility reference
+figure only, not a hard cap.
+
+Verified live (16 Jun 2026): startAnalysisSession() returns a model response with
+apiKeySource: none (subscription OAuth, not a pay-as-you-go key); total_cost_usd
+is populated; claude-haiku-4-5-20251001 IS selectable on this path, so the
+lucet.glanceModel default stays Haiku (no Sonnet fallback needed).
+
+## Integration wiring progress (all model paths verified live 16 Jun 2026)
+- Step 1 (auth + Haiku): DONE, verified live.
+- Step 2 (glance hover): DONE. ui/hover.ts selects the AST node (structure/parser),
+  assembles glance context (context/assembler.ts), checks the cache, and on a miss
+  calls startAnalysisSession(glanceModel) → collectResult → meter. Highlights the
+  node range; cleared on selection change.
+- Step 3 (deep-dive panel): DONE. lucet.deepDive selects the enclosing function,
+  grounds via semantics, calls startAnalysisSession(deepDiveModel); ui/panel.ts renders
+  the five sections as <details> with clickable "Defined at" links (vscode.open).
+- Step 4 (meter→status bar): DONE. analysis/collect.ts feeds every result message to
+  CostMeter; a StatusBarItem shows meter.format(monthlyCreditUSD). clearCache does NOT
+  reset the meter.
+- Step 5 (why): DONE. "Explain why" button → startWhySession (WHY_TOOLS, maxTurns =
+  whyRetrievalSteps); cache key = computeWhyCacheKey(target + manifest hash + version).
+- Step 6 (as-Python): DONE. Button hidden when source == pivotLanguage; calls
+  startAnalysisSession(pivotModel) with buildAsPythonPrompt; key = computePythonViewCacheKey.
+
+Live verification (scripts/verify-*.mjs): glance via Haiku; deep-dive emits 5/5 section
+headers (Opus); as-Python yields a comprehension (Sonnet); why session runs with tools
+(bounded). All through analysis/session.ts; allowedTools tiers intact.
+
+## Needs interactive verification (F5 Extension Development Host)
+Logic is unit-tested and model paths verified headlessly, but the VS Code UI surfaces
+have not been exercised live: glance tooltip rendering + dwell timing + node highlight;
+the deep-dive webview (collapsible sections, Defined-at navigation, Explain-why / Show-as-
+Python buttons, copy); and the status-bar item appearance. Confirm these with F5.
+
+## Known follow-ups
+- Why-tier fit claims: the prompt enforces "no referent → no claim"; buildFitSection()
+  enforces it for structured rendering, but panel currently renders the model's free
+  text, so enforcement is by prompt, not by parsing. Tighten if structured why output
+  is added.
+- Glance cancellation is best-effort (checks the CancellationToken); no AbortController
+  wired into the in-flight query yet.
 
 ## Working discipline
 - One module per session. Stop at each module's acceptance criteria and verify before continuing.

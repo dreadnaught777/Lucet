@@ -15,35 +15,63 @@ export const WHY_TOOLS = ['Read', 'Grep', 'Glob', 'Bash'] as const;
 interface SessionOptions {
 	allowedTools: string[];
 	env: Env;
+	model?: string;
+	maxTurns?: number;
 }
 
 /**
  * Options for the glance and deep-dive tiers: NO tools. These tiers must answer
- * only from the context we assemble — fast, predictable, no wandering.
+ * only from the context we assemble — fast, predictable, no wandering. An optional
+ * `model` selects the per-tier model (glance/deep-dive/as-Python).
  */
-export function analysisSessionOptions(env: Env = process.env): SessionOptions {
-	return { allowedTools: [], env: stripAnthropicCredentials(env) };
+export function analysisSessionOptions(env: Env = process.env, model?: string): SessionOptions {
+	const opts: SessionOptions = { allowedTools: [], env: stripAnthropicCredentials(env) };
+	if (model) {
+		opts.model = model;
+	}
+	return opts;
 }
 
 /**
  * Options for the why tier: the read-only tool set. Opt-in and slower, so
  * agentic retrieval latency is acceptable here.
  */
-export function whySessionOptions(env: Env = process.env): SessionOptions {
-	return { allowedTools: [...WHY_TOOLS], env: stripAnthropicCredentials(env) };
+export function whySessionOptions(
+	env: Env = process.env,
+	model?: string,
+	maxTurns?: number,
+): SessionOptions {
+	const opts: SessionOptions = { allowedTools: [...WHY_TOOLS], env: stripAnthropicCredentials(env) };
+	if (model) {
+		opts.model = model;
+	}
+	// Bound agentic retrieval so one expansion cannot crawl the whole repo.
+	if (typeof maxTurns === 'number' && maxTurns > 0) {
+		opts.maxTurns = maxTurns;
+	}
+	return opts;
+}
+
+export interface StartOptions {
+	env?: Env;
+	model?: string;
+	maxTurns?: number;
 }
 
 /**
- * Start a glance / deep-dive session. The SDK is an ES module, loaded via dynamic
- * import from this CommonJS extension.
+ * Start a glance / deep-dive / as-Python session (allowedTools: []). The SDK is an
+ * ES module, loaded via dynamic import from this CommonJS extension.
  */
-export async function startAnalysisSession(prompt: string, env: Env = process.env) {
+export async function startAnalysisSession(prompt: string, opts: StartOptions = {}) {
 	const { query } = await import('@anthropic-ai/claude-agent-sdk');
-	return query({ prompt, options: analysisSessionOptions(env) });
+	return query({ prompt, options: analysisSessionOptions(opts.env ?? process.env, opts.model) });
 }
 
 /** Start a why-tier session with the read-only tool set. */
-export async function startWhySession(prompt: string, env: Env = process.env) {
+export async function startWhySession(prompt: string, opts: StartOptions = {}) {
 	const { query } = await import('@anthropic-ai/claude-agent-sdk');
-	return query({ prompt, options: whySessionOptions(env) });
+	return query({
+		prompt,
+		options: whySessionOptions(opts.env ?? process.env, opts.model, opts.maxTurns),
+	});
 }

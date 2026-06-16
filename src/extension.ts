@@ -1,69 +1,95 @@
-// The module 'vscode' contains the VS Code extensibility API
-// Import the module and reference it with the alias vscode in your code below
+// Lucet activation: registers the glance hover provider, the deep-dive command
+// (with the why and as-Python affordances), the cost meter / status bar, and the
+// clear-cache command. All model calls go through analysis/session.ts.
 import * as vscode from 'vscode';
-import { buildSurroundingContext } from './analysis/context';
-import { buildDeepDivePrompt, DEEP_DIVE_SECTIONS } from './analysis/prompts';
-import { showDeepDivePanel } from './ui/panel';
-import { gatherSemanticFacts, foldSemanticsIntoContext } from './structure/semantics';
-import { CacheStore } from './cache/store';
 import * as path from 'path';
 
-// Decoration applied to the range that an analysis hover is describing.
+import { isSupportedLanguage, getParserFor } from './structure/parsers';
+import { selectEnclosingFunction } from './structure/parser';
+import { gatherSemanticFacts, foldSemanticsIntoContext } from './structure/semantics';
+import { assembleWhyContext } from './context/rationale';
+import {
+	buildDeepDivePrompt,
+	buildWhyPrompt,
+	buildAsPythonPrompt,
+	shouldShowAsPython,
+	promptVersion,
+} from './analysis/prompts';
+import { startAnalysisSession, startWhySession } from './analysis/session';
+import { collectResult } from './analysis/collect';
+import {
+	CacheStore,
+	computeCacheKey,
+	computeWhyCacheKey,
+	computePythonViewCacheKey,
+	getOrAnalyze,
+} from './cache/store';
+import { CostMeter } from './ui/meter';
+import { createGlanceHoverProvider } from './ui/hover';
+import { showDeepDivePanel, type DefinedAtLink } from './ui/panel';
+
+// Decoration applied to the range an explanation is describing.
 let dwellDecorationType: vscode.TextEditorDecorationType;
 
-/** Read the languages the hover provider should be registered for. */
-function getConfiguredLanguages(): string[] {
-	const configured = vscode.workspace
-		.getConfiguration('lucet')
-		.get<string[]>('languages');
-	return configured && configured.length > 0
-		? configured
-		: ['typescript', 'javascript'];
+function config() {
+	const c = vscode.workspace.getConfiguration('lucet');
+	return {
+		glanceModel: c.get<string>('glanceModel', 'claude-haiku-4-5-20251001'),
+		deepDiveModel: c.get<string>('deepDiveModel', 'claude-opus-4-8'),
+		pivotModel: c.get<string>('pivotModel', 'claude-sonnet-4-6'),
+		pivotLanguage: c.get<string>('pivotLanguage', 'python'),
+		monthlyCreditUSD: c.get<number>('monthlyCreditUSD', 100),
+		whyRetrievalSteps: c.get<number>('whyRetrievalSteps', 6),
+		languages: c.get<string[]>('languages', ['typescript', 'javascript', 'python']),
+	};
 }
 
-/** Read the configured dwell delay (milliseconds) before analysis triggers. */
-function getDwellMs(): number {
-	return vscode.workspace.getConfiguration('lucet').get<number>('dwellMs', 400);
-}
-
-// This method is called when your extension is activated
-// Your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
-
-	// Use the console to output diagnostic information (console.log) and errors (console.error)
-	// This line of code will only be executed once when your extension is activated
-	console.log('Congratulations, your extension "lucet" is now active!');
+	const extensionDir = context.extensionPath;
 
 	dwellDecorationType = vscode.window.createTextEditorDecorationType({
 		backgroundColor: new vscode.ThemeColor('editor.hoverHighlightBackground'),
 		isWholeLine: false,
 	});
-	context.subscriptions.push(dwellDecorationType);
 
-	// The command has been defined in the package.json file
-	// Now provide the implementation of the command with registerCommand
-	// The commandId parameter must match the command field in package.json
-	const disposable = vscode.commands.registerCommand('lucet.helloWorld', () => {
-		// The code you place here will be executed every time your command is executed
-		// Display a message box to the user
-		vscode.window.showInformationMessage('Hello World from Lucet!');
-	});
+	const store = new CacheStore(path.join(context.globalStorageUri.fsPath, 'cache.json'));
+	const meter = new CostMeter();
 
-	const ping = vscode.commands.registerCommand('lucet.ping', () => {
-		vscode.window.showInformationMessage('Lucet: pong');
-	});
+	// Status-bar cost meter (personal visibility; no hard cap — credit pool paused).
+	const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+	statusBar.command = 'lucet.clearCache';
+	const refreshMeter = () => {
+		statusBar.text = `$(graph) ${meter.format(config().monthlyCreditUSD)}`;
+		statusBar.tooltip = 'Lucet month-to-date spend (estimate)';
+	};
+	refreshMeter();
+	statusBar.show();
 
-	// Result cache lives under globalStorage so it persists across sessions.
-	const cacheStore = new CacheStore(
-		path.join(context.globalStorageUri.fsPath, 'cache.json'),
-	);
-
+	// Clear the explanation cache (does NOT reset the spend meter — independent).
 	const clearCache = vscode.commands.registerCommand('lucet.clearCache', () => {
-		cacheStore.clear();
+		store.clear();
 		vscode.window.showInformationMessage('Lucet: explanation cache cleared.');
 	});
 
-	// Enable the held-modifier deep-dive keybinding (gated by the when-context).
+	// Glance: model-backed hover.
+	const hoverProvider = createGlanceHoverProvider({
+		extensionDir,
+		store,
+		meter,
+		decoration: dwellDecorationType,
+		glanceModel: () => config().glanceModel,
+		onMeterChanged: refreshMeter,
+	});
+	const hoverRegistration = vscode.languages.registerHoverProvider(
+		config().languages,
+		hoverProvider,
+	);
+
+	// Clear the highlight when the cursor moves / the tooltip is dismissed.
+	const clearOnMove = vscode.window.onDidChangeTextEditorSelection((e) => {
+		e.textEditor.setDecorations(dwellDecorationType, []);
+	});
+
 	vscode.commands.executeCommand('setContext', 'lucet.deepDiveAvailable', true);
 
 	const deepDive = vscode.commands.registerCommand('lucet.deepDive', async () => {
@@ -71,55 +97,124 @@ export function activate(context: vscode.ExtensionContext) {
 		if (!editor) {
 			return;
 		}
-		// Widen to the selection if present, else the cursor's line.
-		const selection = editor.selection;
-		const range = selection.isEmpty
-			? editor.document.lineAt(selection.active.line).range
-			: selection;
-		const code = editor.document.getText(range);
+		const doc = editor.document;
+		const parserPromise = getParserFor(extensionDir, doc.languageId);
+		if (!isSupportedLanguage(doc.languageId) || !parserPromise) {
+			vscode.window.showInformationMessage(`Lucet: no grammar for ${doc.languageId}.`);
+			return;
+		}
+
+		const parser = await parserPromise;
+		const source = doc.getText();
+		const tree = parser.parse(source);
+		if (!tree) {
+			return;
+		}
+		const unit = selectEnclosingFunction(tree.rootNode, doc.offsetAt(editor.selection.active));
+		if (!unit) {
+			return;
+		}
+		const code = source.slice(unit.startIndex, unit.endIndex);
 
 		// Ground the deep dive in VS Code's resolved types/definitions.
-		const facts = await gatherSemanticFacts(editor.document.uri, selection.active);
+		const facts = await gatherSemanticFacts(doc.uri, editor.selection.active);
 		const { context } = foldSemanticsIntoContext(facts);
+		const cfg = config();
 
-		const prompt = buildDeepDivePrompt({
-			code,
-			languageId: editor.document.languageId,
+		const deepKey = computeCacheKey({
+			targetText: code,
 			context,
+			promptVersion,
+			model: cfg.deepDiveModel,
+			depth: 'deep',
+		});
+		const { value: body } = await getOrAnalyze(store, deepKey, async () => {
+			const stream = await startAnalysisSession(
+				buildDeepDivePrompt({ code, languageId: doc.languageId, context }),
+				{ model: cfg.deepDiveModel },
+			);
+			const result = await collectResult(stream, meter);
+			refreshMeter();
+			return result.text;
 		});
 
-		// Until the analysis layer is wired into this tier, render the fixed
-		// section scaffold so the panel structure is visible and stable.
-		const scaffold = DEEP_DIVE_SECTIONS.map((s) => `## ${s}\n`).join('\n');
-		showDeepDivePanel('Lucet: Deep Dive', `${scaffold}\n<!--\n${prompt}\n-->`);
+		// Highlight the explained unit.
+		editor.setDecorations(dwellDecorationType, [
+			new vscode.Range(doc.positionAt(unit.startIndex), doc.positionAt(unit.endIndex)),
+		]);
+
+		const definedAt: DefinedAtLink[] = facts.definitions.map((d) => ({
+			label: `${path.basename(d.uri.fsPath)}:${d.range.start.line + 1}`,
+			uri: d.uri,
+			line: d.range.start.line,
+			character: d.range.start.character,
+		}));
+
+		const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+
+		showDeepDivePanel({
+			title: 'Lucet: Deep Dive',
+			body,
+			definedAt,
+			showAsPython: shouldShowAsPython(doc.languageId, cfg.pivotLanguage),
+			onExplainWhy: async () => {
+				const whyCtx = workspaceRoot
+					? assembleWhyContext(workspaceRoot)
+					: { text: '', dependencies: [], dependencyManifestHash: '' };
+				const whyKey = computeWhyCacheKey({
+					targetText: code,
+					dependencyManifestHash: whyCtx.dependencyManifestHash,
+					promptVersion,
+				});
+				const { value } = await getOrAnalyze(store, whyKey, async () => {
+					const stream = await startWhySession(
+						buildWhyPrompt({ code, languageId: doc.languageId, context: whyCtx.text }),
+						{ model: cfg.deepDiveModel, maxTurns: cfg.whyRetrievalSteps },
+					);
+					const result = await collectResult(stream, meter);
+					refreshMeter();
+					return result.text;
+				});
+				return value;
+			},
+			onShowAsPython: async () => {
+				const pythonKey = computePythonViewCacheKey({
+					targetText: code,
+					pivotLanguage: cfg.pivotLanguage,
+					promptVersion,
+				});
+				const { value } = await getOrAnalyze(store, pythonKey, async () => {
+					const stream = await startAnalysisSession(
+						buildAsPythonPrompt({ code, languageId: doc.languageId }, cfg.pivotLanguage),
+						{ model: cfg.pivotModel },
+					);
+					const result = await collectResult(stream, meter);
+					refreshMeter();
+					return result.text;
+				});
+				return value;
+			},
+		});
 	});
 
-	const hoverProvider: vscode.HoverProvider = {
-		provideHover(document, position) {
-			const lines = document.getText().split(/\r?\n/);
-			const ctx = buildSurroundingContext(lines, position.line);
+	// Lightweight liveness check kept from M0.
+	const ping = vscode.commands.registerCommand('lucet.ping', () => {
+		vscode.window.showInformationMessage('Lucet: pong');
+	});
+	const hello = vscode.commands.registerCommand('lucet.helloWorld', () => {
+		vscode.window.showInformationMessage('Hello World from Lucet!');
+	});
 
-			// Highlight the line the hover is anchored on while it is visible.
-			const editor = vscode.window.activeTextEditor;
-			if (editor && editor.document === document) {
-				const range = document.lineAt(ctx.targetLine).range;
-				editor.setDecorations(dwellDecorationType, [range]);
-			}
-
-			const md = new vscode.MarkdownString();
-			md.appendMarkdown(`**Lucet** — context (dwell ${getDwellMs()}ms)\n\n`);
-			md.appendCodeblock(ctx.text, document.languageId);
-			return new vscode.Hover(md);
-		},
-	};
-
-	const hoverRegistration = vscode.languages.registerHoverProvider(
-		getConfiguredLanguages(),
-		hoverProvider,
+	context.subscriptions.push(
+		dwellDecorationType,
+		statusBar,
+		clearCache,
+		hoverRegistration,
+		clearOnMove,
+		deepDive,
+		ping,
+		hello,
 	);
-
-	context.subscriptions.push(disposable, ping, deepDive, clearCache, hoverRegistration);
 }
 
-// This method is called when your extension is deactivated
 export function deactivate() {}

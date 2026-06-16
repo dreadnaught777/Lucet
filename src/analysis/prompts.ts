@@ -34,6 +34,24 @@ function sectionHeader(title: string): string {
 }
 
 /**
+ * Build the glance prompt. Constrained hard: at most two sentences, no preamble,
+ * plain language — the failure mode of this tier is padding.
+ */
+export function buildGlancePrompt(target: DeepDiveTarget): string {
+	const parts = [
+		'Explain what this code does in AT MOST two sentences, plain language, no',
+		'preamble and no closing remarks. Describe behaviour, not syntax trivia.',
+		'',
+		`Language: ${target.languageId}`,
+	];
+	if (target.context && target.context.trim().length > 0) {
+		parts.push('', 'Supporting context:', '```', target.context, '```');
+	}
+	parts.push('', 'Code:', '```' + target.languageId, target.code, '```');
+	return parts.join('\n');
+}
+
+/**
  * Build the deep-dive prompt. The instruction pins the answer to the five fixed
  * section headers in {@link DEEP_DIVE_SECTIONS}; the failure mode is padding, so
  * the prompt constrains against preamble and filler.
