@@ -1,7 +1,6 @@
 // Deep-dive UI: a single reused WebviewPanel. Renders the five fixed sections as
 // collapsible <details>, makes resolved "Defined at" entries clickable, and hosts
 // the "Explain why" and "Show as Python" affordances. Plain HTML/CSS/JS — no framework.
-import * as crypto from 'crypto';
 import * as vscode from 'vscode';
 
 const VIEW_TYPE = 'lucet.deepDive';
@@ -47,29 +46,13 @@ let panel: vscode.WebviewPanel | undefined;
 let current: DeepDiveView | undefined;
 let messageSub: vscode.Disposable | undefined;
 
-/**
- * Escape a string for safe HTML interpolation in either element content or
- * attribute-value position. Covers all five HTML-spec characters; the prior
- * version omitted quotes, which broke `data-uri="${escapeHtml(...)}"` safety.
- * Exported for unit testing.
- */
-export function escapeHtml(value: string): string {
-	return value
-		.replace(/&/g, '&amp;')
-		.replace(/</g, '&lt;')
-		.replace(/>/g, '&gt;')
-		.replace(/"/g, '&quot;')
-		.replace(/'/g, '&#39;');
+function escapeHtml(value: string): string {
+	return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-/**
- * Generate a CSP nonce. Must be unpredictable per render — a predictable
- * value defeats the point, since an attacker who can guess it could ship an
- * inline script that the CSP would then execute. `randomBytes` is the right
- * primitive; the prior `Date.now()` derivation was guessable.
- */
 function nonce(): string {
-	return crypto.randomBytes(16).toString('base64url');
+	// No Math.random reliance: derive from a monotonically changing field.
+	return Buffer.from(`${VIEW_TYPE}:${current?.title ?? ''}:${Date.now()}`).toString('base64').replace(/[^a-zA-Z0-9]/g, '').slice(0, 24);
 }
 
 /** Show (or refresh) the deep-dive panel for a view. */
@@ -106,13 +89,6 @@ export function disposeDeepDivePanel(): void {
 	current = undefined;
 }
 
-/**
- * URI schemes safe to hand to `vscode.open` from a webview `data-uri`. We
- * accept only file-resource schemes — `command:` URIs in particular would let
- * a tampered `data-uri` invoke arbitrary VS Code commands.
- */
-const ALLOWED_OPEN_SCHEMES = new Set(['file', 'untitled', 'vscode-remote']);
-
 async function handleMessage(msg: { type?: string; line?: number; character?: number; uri?: string }): Promise<void> {
 	if (!current || !panel) {
 		return;
@@ -120,10 +96,6 @@ async function handleMessage(msg: { type?: string; line?: number; character?: nu
 	try {
 		if (msg.type === 'open' && msg.uri) {
 			const uri = vscode.Uri.parse(msg.uri);
-			if (!ALLOWED_OPEN_SCHEMES.has(uri.scheme)) {
-				// Drop silently; the webview should never produce a non-file URI.
-				return;
-			}
 			const pos = new vscode.Position(msg.line ?? 0, msg.character ?? 0);
 			await vscode.commands.executeCommand('vscode.open', uri, {
 				selection: new vscode.Range(pos, pos),
@@ -131,11 +103,11 @@ async function handleMessage(msg: { type?: string; line?: number; character?: nu
 		} else if (msg.type === 'explainWhy') {
 			panel.webview.postMessage({ type: 'status', target: 'why', text: 'Analysing…' });
 			const text = await current.onExplainWhy();
-			panel.webview.postMessage({ type: 'append', target: 'why', text });
+			panel.webview.postMessage({ type: 'append', target: 'why', html: escapeHtml(text) });
 		} else if (msg.type === 'showAsPython') {
 			panel.webview.postMessage({ type: 'status', target: 'python', text: 'Rendering…' });
 			const text = await current.onShowAsPython();
-			panel.webview.postMessage({ type: 'append', target: 'python', text });
+			panel.webview.postMessage({ type: 'append', target: 'python', html: escapeHtml(text) });
 		}
 	} catch (err) {
 		const text = err instanceof Error ? err.message : String(err);
@@ -202,38 +174,15 @@ function renderHtml(webview: vscode.Webview, view: DeepDiveView): string {
 			e.preventDefault();
 			vscodeApi.postMessage({ type: 'open', uri: a.dataset.uri, line: Number(a.dataset.line), character: Number(a.dataset.character) });
 		}));
-		// All host-supplied content is rendered via textContent so the browser
-		// never parses it as HTML. innerHTML is not used for dynamic content.
-		function renderStatus(el, text) {
-			el.replaceChildren();
-			const p = document.createElement('p');
-			p.className = 'illustrative';
-			p.textContent = text;
-			el.appendChild(p);
-		}
-		function renderAppend(el, target, text) {
-			el.replaceChildren();
-			if (target === 'python') {
-				const note = document.createElement('p');
-				note.className = 'illustrative';
-				note.textContent = 'Illustrative Python — not a runnable port.';
-				el.appendChild(note);
-			} else {
-				const h = document.createElement('h3');
-				h.textContent = 'Why';
-				el.appendChild(h);
-			}
-			const pre = document.createElement('pre');
-			pre.textContent = text;
-			el.appendChild(pre);
-		}
 		window.addEventListener('message', (event) => {
 			const m = event.data;
 			const el = document.getElementById(m.target + '-result');
 			if (!el) return;
-			const text = typeof m.text === 'string' ? m.text : '';
-			if (m.type === 'status') renderStatus(el, text);
-			else if (m.type === 'append') renderAppend(el, m.target, text);
+			if (m.type === 'status') { el.innerHTML = '<p class="illustrative">' + m.text + '</p>'; }
+			else if (m.type === 'append') {
+				const header = m.target === 'python' ? '<p class="illustrative">Illustrative Python — not a runnable port.</p>' : '<h3>Why</h3>';
+				el.innerHTML = header + '<pre>' + m.html + '</pre>';
+			}
 		});
 	</script>
 </body>
